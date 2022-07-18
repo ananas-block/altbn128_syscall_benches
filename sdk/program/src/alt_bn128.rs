@@ -460,7 +460,7 @@ pub fn alt_bn128_pairing(input: &[u8]) -> Result<Vec<u8>, AltBn128Error> {
             Ok((a, b))
         }
 
-        let ele_len = input.len().saturating_div(ALT_BN128_PAIRING_ELEMENT_LEN);
+        let ele_len = input.len().checked_div(ALT_BN128_PAIRING_ELEMENT_LEN).unwrap();
         let mut acc = Gt::one();
         for i in 0..ele_len {
             let (a, b) = read_one(
@@ -488,7 +488,7 @@ pub fn alt_bn128_pairing(input: &[u8]) -> Result<Vec<u8>, AltBn128Error> {
 #[cfg(not(target_arch = "bpf"))]
 fn alt_bn128_addition_test() {
     use serde::Deserialize;
-
+    use std::time::Instant;
     let test_data = r#"[
         {
             "Input": "18b18acfb4c2c30276db5411368e7185b311dd124691610c5d3b74034e093dc9063c909c4720840cb5134cb9f59fa749755796819658d32efc0d288198f3726607c2b7f58a84bd6145f00c9c2bc0bb1a187f20ff2c92963a88019e7c6a014eed06614e20c147e940f2d70da3f74c9a17df361706a4485c742bd6788478fa17d7",
@@ -594,19 +594,40 @@ fn alt_bn128_addition_test() {
     struct TestCase {
         input: String,
         expected: String,
+        name: String,
     }
 
     let test_cases: Vec<TestCase> = serde_json::from_str(test_data).unwrap();
+    let now_1 = Instant::now();
+    let iterations = 1;
+    let mut skipped = 0;
+    for _ in 0..iterations {
 
-    test_cases.iter().for_each(|test| {
-        let input = array_bytes::hex2bytes_unchecked(&test.input);
-        let result = alt_bn128_addition(&input);
-        assert!(result.is_ok());
-        let result = result.unwrap();
+        let elapsed1 = now_1.elapsed();
+        test_cases.iter().for_each(|test| {
+            // println!("test.input: {:?}",test.name );
 
-        let expected = array_bytes::hex2bytes_unchecked(&test.expected);
-        assert_eq!(result, expected);
-    });
+            let input = array_bytes::hex2bytes_unchecked(&test.input);
+            // println!("input: {:?}",input );
+            // println!("input.len(): {:?}",input.len() );
+            if input.len() > 128 {
+                skipped+=1;
+            } else {
+                let result = alt_bn128_addition(&input);
+                // println!("result: {:?}",result );
+                assert!(result.is_ok());
+                let result = result.unwrap();
+
+                let expected = array_bytes::hex2bytes_unchecked(&test.expected);
+                assert_eq!(result, expected);
+
+            }
+        });
+    }
+    let elapsed1 = now_1.elapsed();
+    println!("{:?}", elapsed1/ (iterations*14) );
+
+    println!("{:?}", elapsed1/ ((iterations*14) - skipped));
 }
 
 #[test]
