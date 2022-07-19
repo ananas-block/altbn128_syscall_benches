@@ -20,19 +20,8 @@ use solana_program::alt_bn128::{
     alt_bn128_multiplication,
     alt_bn128_pairing
 };
-// #[bench]
-// fn bench_to_from_account(b: &mut Bencher) {
-//     let mut slot_hashes = SlotHashes::new(&[]);
-//     for i in 0..MAX_ENTRIES {
-//         slot_hashes.add(i as Slot, Hash::default());
-//     }
-//     b.iter(|| {
-//         let account = create_account_for_test(&slot_hashes);
-//         slot_hashes = from_account::<SlotHashes, _>(&account).unwrap();
-//     });
-// }
+
 #[bench]
-// #[cfg(not(target_arch = "bpf"))]
 fn alt_bn128_addition_test(b: &mut Bencher) {
     use serde::Deserialize;
     use std::time::Instant;
@@ -56,48 +45,20 @@ fn alt_bn128_addition_test(b: &mut Bencher) {
 
     let test_cases: Vec<TestCase> = serde_json::from_str(test_data).unwrap();
 
-    let mut skipped = 0;
-    let mut total = 0;
-    let mut rounds = 0;
     b.iter(|| {
-    //         let account = create_account_for_test(&slot_hashes);
-    //         slot_hashes = from_account::<SlotHashes, _>(&account).unwrap();
-    //     }); {
-        // let input = array_bytes::hex2bytes_unchecked(&test_cases[0].input);
-        // let result = alt_bn128_addition(&input);
-        // // println!("result: {:?}",result );
-        // assert!(result.is_ok());
-        // let result = result.unwrap();
-        //
-        // let expected = array_bytes::hex2bytes_unchecked(&test_cases[0].expected);
-        // assert_eq!(result, expected);
-        rounds +=1;
+
         test_cases.iter().for_each(|test| {
-            // println!("test.input: {:?}",test.name );
 
             let input = array_bytes::hex2bytes_unchecked(&test.input);
-            // println!("input: {:?}",input );
-            // println!("input.len(): {:?}",input.len() );
-            total+=1;
-            if input.len() > 128 {
-                skipped+=1;
-            } else {
-                let result = alt_bn128_addition(&input);
-                // println!("result: {:?}",result );
-                assert!(result.is_ok());
-                let result = result.unwrap();
 
-                let expected = array_bytes::hex2bytes_unchecked(&test.expected);
-                assert_eq!(result, expected);
+            let result = alt_bn128_addition(&input);
+            assert!(result.is_ok());
+            let result = result.unwrap();
 
-            }
+            let expected = array_bytes::hex2bytes_unchecked(&test.expected);
+            assert_eq!(result, expected);
         });
     });
-    // let elapsed1 = now_1.elapsed();
-    // println!("{:?}", elapsed1/ (iterations*14) );
-    //
-    // println!("{:?}", elapsed1/ ((iterations*14) - skipped));
-    println!("tested cases len: {}",(total - skipped)/rounds );
 }
 
 
