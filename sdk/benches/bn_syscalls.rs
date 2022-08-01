@@ -195,7 +195,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 
 
 criterion_group!(benches,
-    // alt_bn128_pairing_test_2,
+    alt_bn128_pairing_test_2,
     // // alt_bn128_pairing_test_rnd,
     alt_bn128_pairing_test_rnd_2,
     alt_bn128_multiplication_test_rnd
