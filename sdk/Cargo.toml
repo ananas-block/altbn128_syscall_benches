@@ -80,6 +80,10 @@ solana-sdk-macro = { path = "macro", version = "=1.9.22" }
 thiserror = "1.0"
 uriparse = "0.6.3"
 wasm-bindgen = "0.2"
+ark-ff = "0.3.0"
+ark-ec = "0.3.0"
+ark-bn254 = "0.3.0"
+ark-std="0.3.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3.55"
@@ -88,7 +92,7 @@ js-sys = "0.3.55"
 anyhow = "1.0.45"
 curve25519-dalek = "3.2.0"
 tiny-bip39 = "0.8.2"
-
+criterion = "0.3"
 [build-dependencies]
 rustc_version = "0.4"
 
@@ -97,3 +101,7 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[[bench]]
+name = "bn_syscalls"
+harness = false
