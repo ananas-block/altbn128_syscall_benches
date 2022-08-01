@@ -3,19 +3,42 @@ pub mod prelude {
         alt_bn128_addition, alt_bn128_multiplication, alt_bn128_pairing, consts::*, AltBn128Error,
     };
 }
+use bytemuck::{Pod, Zeroable};
 
 use {
-    borsh::{BorshDeserialize, BorshSchema, BorshSerialize},
     core::convert::TryFrom,
     thiserror::Error,
 };
 
-#[cfg(not(target_arch = "bpf"))]
-use {
-    bigint::U256,
-    bn::{pairing, AffineG1, AffineG2, Fq, Fq2, Fr, Group, Gt, G1, G2},
+use ark_ff::{
+    bytes::{FromBytes, ToBytes},
+    BigInteger
 };
 
+use ark_ec::{
+    self,
+    AffineCurve,
+    ProjectiveCurve,
+    PairingEngine,
+    models::bn::{
+        Bn,
+        g1::G1Prepared,
+        g2::G2Prepared
+    }
+};
+use {
+    ark_bn254::{
+        self,
+        Parameters
+    }
+};
+
+use ark_ff::{
+    One,
+    BigInteger256
+};
+use crate::alt_bn128::AltBn128Error::InvalidInputData;
+use num_traits::Zero;
 use consts::*;
 
 //---- Constants
@@ -106,164 +129,49 @@ impl From<AltBn128Error> for u64 {
 }
 
 //---- Field & Point structs
+type G1 = ark_ec::short_weierstrass_jacobian::GroupAffine::<ark_bn254::g1::Parameters>;
+type G2 = ark_ec::short_weierstrass_jacobian::GroupAffine::<ark_bn254::g2::Parameters>;
 
-/// Field struct.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 #[repr(transparent)]
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    BorshSchema,
-    Clone,
-    Copy,
-    Eq,
-    PartialEq,
-    Ord,
-    PartialOrd,
-    Hash,
-    AbiExample,
-)]
-pub struct AltBn128Field(FieldBytes);
+pub struct PodG1(pub [u8; 64]);
 
-impl AltBn128Field {
-    pub fn to_bytes(self) -> FieldBytes {
-        self.0
-    }
-}
 
-impl From<FieldBytes> for AltBn128Field {
-    fn from(input: FieldBytes) -> Self {
-        Self(input)
-    }
-}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+#[repr(transparent)]
+pub struct PodG2(pub [u8; 128]);
 
-impl TryFrom<&[u8]> for AltBn128Field {
+
+impl TryFrom<PodG1> for G1 {
     type Error = AltBn128Error;
-    fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
-        FieldBytes::try_from(input)
-            .map_err(|_| AltBn128Error::TryFromSliceError)
-            .map(Self)
-    }
-}
-
-impl TryFrom<(&[u8], usize)> for AltBn128Field {
-    type Error = AltBn128Error;
-    fn try_from((input, pos): (&[u8], usize)) -> Result<Self, Self::Error> {
-        if input.len() < pos.saturating_add(ALT_BN128_FIELD_SIZE) {
-            return Err(AltBn128Error::SliceOutOfBounds);
+    fn try_from(bytes: PodG1) -> Result<Self, Self::Error> {
+        if bytes.0 == [0u8;64] {
+            return Ok(G1::zero());
         }
-        let mut buf = [0; ALT_BN128_FIELD_SIZE];
-        buf.copy_from_slice(&input[pos..(pos.saturating_add(ALT_BN128_FIELD_SIZE))]);
-        Ok(AltBn128Field::from(buf))
+        let g1 = <Self as FromBytes>::read(&*[&bytes.0[..], &[0u8][..]].concat());
+        assert!(g1.as_ref().unwrap().is_on_curve());
+
+        match g1 {
+            Ok(g1) => Ok(g1),
+            Err(_) => Err(AltBn128Error::InvalidInputData),
+        }
     }
 }
 
-/// Point struct.
-#[repr(transparent)]
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    BorshSchema,
-    Clone,
-    Copy,
-    Eq,
-    PartialEq,
-    Ord,
-    PartialOrd,
-    Hash,
-    AbiExample,
-)]
-pub struct AltBn128Point((AltBn128Field, AltBn128Field));
-
-impl AltBn128Point {
-    pub fn new(x: AltBn128Field, y: AltBn128Field) -> Self {
-        Self((x, y))
-    }
-
-    pub fn x(self) -> AltBn128Field {
-        (self.0).0
-    }
-
-    pub fn y(self) -> AltBn128Field {
-        (self.0).1
-    }
-
-    pub fn to_bytes(self) -> Result<PointBytes, AltBn128Error> {
-        PointBytes::try_from(
-            [self.x().to_bytes(), self.y().to_bytes()]
-                .concat()
-                .as_slice(),
-        )
-        .map_err(|_| AltBn128Error::TryFromSliceError)
-    }
-}
-
-impl TryFrom<&[u8]> for AltBn128Point {
+impl TryFrom<PodG2> for G2 {
     type Error = AltBn128Error;
-    fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
-        AltBn128Point::try_from(
-            &PointBytes::try_from(input).map_err(|_| AltBn128Error::TryFromSliceError)?,
-        )
-    }
-}
 
-impl TryFrom<&PointBytes> for AltBn128Point {
-    type Error = AltBn128Error;
-    fn try_from(point_data: &PointBytes) -> Result<Self, Self::Error> {
-        Ok(AltBn128Point::new(
-            AltBn128Field::try_from((point_data as &[u8], 0))?,
-            AltBn128Field::try_from((point_data as &[u8], ALT_BN128_FIELD_SIZE))?,
-        ))
-    }
-}
+    fn try_from(bytes: PodG2) -> Result<Self, Self::Error>{
+        if bytes.0 == [0u8;128] {
+            return Ok(G2::zero());
+        }
+        let g2 = <Self as FromBytes>::read(&*[&bytes.0[..], &[0u8][..]].concat());
+        assert!(g2.as_ref().unwrap().is_on_curve());
 
-//----
-
-// Field -> Fq
-#[cfg(not(target_arch = "bpf"))]
-impl TryFrom<&AltBn128Field> for Fq {
-    type Error = AltBn128Error;
-    fn try_from(value: &AltBn128Field) -> Result<Self, Self::Error> {
-        Fq::from_slice(&value.0).map_err(|_| AltBn128Error::FieldError)
-    }
-}
-
-// Field -> Fr
-#[cfg(not(target_arch = "bpf"))]
-impl TryFrom<&AltBn128Field> for Fr {
-    type Error = AltBn128Error;
-    fn try_from(value: &AltBn128Field) -> Result<Self, Self::Error> {
-        Fr::from_slice(&value.0).map_err(|_| AltBn128Error::FieldError)
-    }
-}
-
-// FqPair
-#[cfg(not(target_arch = "bpf"))]
-struct FqPair(pub Fq, pub Fq);
-#[cfg(not(target_arch = "bpf"))]
-impl FqPair {
-    pub fn new(x: Fq, y: Fq) -> Self {
-        Self(x, y)
-    }
-}
-
-// (Fq, Fq) -> G1
-#[cfg(not(target_arch = "bpf"))]
-impl TryFrom<FqPair> for G1 {
-    type Error = AltBn128Error;
-    fn try_from(pair: FqPair) -> Result<Self, Self::Error> {
-        Ok(if pair.0 == Fq::zero() && pair.1 == Fq::zero() {
-            G1::zero()
-        } else {
-            G1::from(AffineG1::new(pair.0, pair.1).map_err(|_| AltBn128Error::GroupError)?)
-        })
-    }
-}
-
-// (Fq, Fq) -> Fq2
-#[cfg(not(target_arch = "bpf"))]
-impl From<FqPair> for Fq2 {
-    fn from(pair: FqPair) -> Self {
-        Fq2::new(pair.0, pair.1)
+        match g2 {
+            Ok(g2) => Ok(g2),
+            Err(_) => Err(InvalidInputData),
+        }
     }
 }
 
@@ -302,30 +210,20 @@ pub fn alt_bn128_addition(input: &[u8]) -> Result<Vec<u8>, AltBn128Error> {
         let mut input = input.to_vec();
         input.resize(ALT_BN128_ADDITION_INPUT_LEN, 0);
 
-        let px = &AltBn128Field::try_from((input.as_slice(), 0))?;
-        let py = &AltBn128Field::try_from((input.as_slice(), ALT_BN128_FIELD_SIZE))?;
-        let qx =
-            &AltBn128Field::try_from((input.as_slice(), ALT_BN128_FIELD_SIZE.saturating_mul(2)))?;
-        let qy =
-            &AltBn128Field::try_from((input.as_slice(), ALT_BN128_FIELD_SIZE.saturating_mul(3)))?;
+       let p :G1 = PodG1(to_le_64(&input[..64]).try_into().unwrap()).try_into().unwrap();
+       let q :G1 = PodG1(to_le_64(&input[64..ALT_BN128_ADDITION_INPUT_LEN]).try_into().unwrap()).try_into().unwrap();
 
-        let p = G1::try_from(FqPair::new(Fq::try_from(px)?, Fq::try_from(py)?))?;
-        let q = G1::try_from(FqPair::new(Fq::try_from(qx)?, Fq::try_from(qy)?))?;
+        let mut result_point_data = [0; ALT_BN128_ADDITION_OUTPUT_LEN + 1];
+        let result_point = p + q;
+        <G1 as ToBytes>::write(&result_point, &mut result_point_data[..]).unwrap();
 
-        let mut result_point_data = [0; ALT_BN128_ADDITION_OUTPUT_LEN];
-        if let Some(result_point) = AffineG1::from_jacobian(p + q) {
-            result_point
-                .x()
-                .to_big_endian(&mut result_point_data[0..ALT_BN128_FIELD_SIZE])
-                .map_err(|_| AltBn128Error::SliceOutOfBounds)?;
-            result_point
-                .y()
-                .to_big_endian(&mut result_point_data[ALT_BN128_FIELD_SIZE..])
-                .map_err(|_| AltBn128Error::SliceOutOfBounds)?;
+        if result_point == G1::zero() {
+            return Ok([0u8;ALT_BN128_ADDITION_OUTPUT_LEN].to_vec());
         }
-        Ok(result_point_data.to_vec())
+        Ok(result_point_data[..ALT_BN128_ADDITION_OUTPUT_LEN].to_vec())
     }
 }
+
 
 pub fn alt_bn128_multiplication(input: &[u8]) -> Result<Vec<u8>, AltBn128Error> {
     #[cfg(target_arch = "bpf")]
@@ -364,26 +262,15 @@ pub fn alt_bn128_multiplication(input: &[u8]) -> Result<Vec<u8>, AltBn128Error> 
         let mut input = input.to_vec();
         input.resize(ALT_BN128_MULTIPLICATION_INPUT_LEN, 0);
 
-        let px = &AltBn128Field::try_from((input.as_slice(), 0))?;
-        let py = &AltBn128Field::try_from((input.as_slice(), ALT_BN128_FIELD_SIZE))?;
-        let fr =
-            &AltBn128Field::try_from((input.as_slice(), ALT_BN128_FIELD_SIZE.saturating_mul(2)))?;
+        let p :G1 = PodG1(to_le_64(&input[..64]).try_into().unwrap()).try_into().unwrap();
 
-        let p = G1::try_from(FqPair::new(Fq::try_from(px)?, Fq::try_from(py)?))?;
-        let fr = Fr::try_from(fr)?;
+        let fr = <BigInteger256 as FromBytes>::read(&*to_le_64(&input[64..96])).unwrap();
 
-        let mut result_point_data = [0; ALT_BN128_MULTIPLICATION_OUTPUT_LEN];
-        if let Some(result_point) = AffineG1::from_jacobian(p * fr) {
-            result_point
-                .x()
-                .to_big_endian(&mut result_point_data[0..ALT_BN128_FIELD_SIZE])
-                .map_err(|_| AltBn128Error::SliceOutOfBounds)?;
-            result_point
-                .y()
-                .to_big_endian(&mut result_point_data[ALT_BN128_FIELD_SIZE..])
-                .map_err(|_| AltBn128Error::SliceOutOfBounds)?;
-        }
-        Ok(result_point_data.to_vec())
+        let mut result_point_data = [0; ALT_BN128_MULTIPLICATION_OUTPUT_LEN + 1];
+        let result_point: G1 = p.into_projective().mul(&fr).into();
+        <G1 as ToBytes>::write(&result_point, &mut result_point_data[..]).unwrap();
+
+        Ok(result_point_data[..ALT_BN128_MULTIPLICATION_OUTPUT_LEN].to_vec())
     }
 }
 
@@ -428,67 +315,62 @@ pub fn alt_bn128_pairing(input: &[u8]) -> Result<Vec<u8>, AltBn128Error> {
             return Err(AltBn128Error::InvalidInputData);
         }
 
-        fn read_one(s: &[u8]) -> Result<(G1, G2), AltBn128Error> {
-            let ax = Fq::try_from(&AltBn128Field::try_from((s, 0))?)?;
-            let ay = Fq::try_from(&AltBn128Field::try_from((s, ALT_BN128_FIELD_SIZE))?)?;
-            let bay = Fq::try_from(&AltBn128Field::try_from((
-                s,
-                ALT_BN128_FIELD_SIZE.saturating_mul(2),
-            ))?)?;
-            let bax = Fq::try_from(&AltBn128Field::try_from((
-                s,
-                ALT_BN128_FIELD_SIZE.saturating_mul(3),
-            ))?)?;
-            let bby = Fq::try_from(&AltBn128Field::try_from((
-                s,
-                ALT_BN128_FIELD_SIZE.saturating_mul(4),
-            ))?)?;
-            let bbx = Fq::try_from(&AltBn128Field::try_from((
-                s,
-                ALT_BN128_FIELD_SIZE.saturating_mul(5),
-            ))?)?;
+        let ele_len = input.len().saturating_div(ALT_BN128_PAIRING_ELEMENT_LEN);
 
-            let ba = Fq2::new(bax, bay);
-            let bb = Fq2::new(bbx, bby);
-
-            let b = if ba.is_zero() && bb.is_zero() {
-                G2::zero()
-            } else {
-                G2::from(AffineG2::new(ba, bb).map_err(|_| AltBn128Error::GroupError)?)
-            };
-            let a = G1::try_from(FqPair::new(ax, ay))?;
-            Ok((a, b))
-        }
-
-        let ele_len = input.len().checked_div(ALT_BN128_PAIRING_ELEMENT_LEN).unwrap();
-        let mut acc = Gt::one();
+        let mut vec_pairs: Vec<(G1Prepared<Parameters>, G2Prepared<Parameters>)> = Vec::new();
         for i in 0..ele_len {
-            let (a, b) = read_one(
-                &input[i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN)
-                    ..i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN)
-                        .saturating_add(ALT_BN128_PAIRING_ELEMENT_LEN)],
-            )?;
-            acc = acc * pairing(a, b);
+            let g1 :G1 = PodG1(to_le_64(&input[i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN)..i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN).saturating_add(64)]).try_into().unwrap()).try_into().unwrap();
+            let g2 :G2 = PodG2(to_le_128(&input[i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN).saturating_add(64) ..i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN).saturating_add(ALT_BN128_PAIRING_ELEMENT_LEN)]).try_into().unwrap()).try_into().unwrap();
+            vec_pairs.push((
+                g1.into(),
+                g2.into(),
+            ));
         }
 
-        let result = if acc == Gt::one() {
-            U256::from(1)
-        } else {
-            U256::zero()
-        };
+        let mut result = BigInteger256::from(0u64);
+        #[cfg(not(target_arch = "bpf"))]
+        {
+            let res = <Bn<Parameters> as PairingEngine>::product_of_pairings(
+                (&vec_pairs[..ele_len]).into_iter()
+            );
 
-        let mut output = vec![0u8; ALT_BN128_PAIRING_OUTPUT_LEN];
-        result.to_big_endian(&mut output);
+            type GT = <ark_ec::models::bn::Bn<ark_bn254::Parameters> as ark_ec::PairingEngine>::Fqk;
 
+            if res == GT::one() {
+                result = BigInteger256::from(1u64);
+            }
+        }
+
+        let output = result.to_bytes_be();
         Ok(output)
     }
+}
+
+fn to_le_64(bytes: &[u8]) -> Vec<u8> {
+    let mut vec = Vec::new();
+    for b in bytes.chunks(32) {
+        for byte in b.iter().rev() {
+            vec.push(*byte);
+        }
+    }
+    vec
+}
+
+fn to_le_128(bytes: &[u8]) -> Vec<u8> {
+    let mut vec = Vec::new();
+    for b in bytes.chunks(64) {
+        for byte in b.iter().rev() {
+            vec.push(*byte);
+        }
+    }
+    vec
 }
 
 #[test]
 #[cfg(not(target_arch = "bpf"))]
 fn alt_bn128_addition_test() {
     use serde::Deserialize;
-    use std::time::Instant;
+
     let test_data = r#"[
         {
             "Input": "18b18acfb4c2c30276db5411368e7185b311dd124691610c5d3b74034e093dc9063c909c4720840cb5134cb9f59fa749755796819658d32efc0d288198f3726607c2b7f58a84bd6145f00c9c2bc0bb1a187f20ff2c92963a88019e7c6a014eed06614e20c147e940f2d70da3f74c9a17df361706a4485c742bd6788478fa17d7",
@@ -594,40 +476,24 @@ fn alt_bn128_addition_test() {
     struct TestCase {
         input: String,
         expected: String,
-        name: String,
     }
 
     let test_cases: Vec<TestCase> = serde_json::from_str(test_data).unwrap();
-    let now_1 = Instant::now();
-    let iterations = 1;
-    let mut skipped = 0;
-    for _ in 0..iterations {
+    let mut i = 0;
+    test_cases.iter().for_each(|test| {
+        let input = array_bytes::hex2bytes_unchecked(&test.input);
+        if input.len() != ALT_BN128_ADDITION_INPUT_LEN {
+        } else {
 
-        let elapsed1 = now_1.elapsed();
-        test_cases.iter().for_each(|test| {
-            // println!("test.input: {:?}",test.name );
+            let result = alt_bn128_addition(&input);
+            assert!(result.is_ok());
+            let result = result.unwrap();
 
-            let input = array_bytes::hex2bytes_unchecked(&test.input);
-            // println!("input: {:?}",input );
-            // println!("input.len(): {:?}",input.len() );
-            if input.len() > 128 {
-                skipped+=1;
-            } else {
-                let result = alt_bn128_addition(&input);
-                // println!("result: {:?}",result );
-                assert!(result.is_ok());
-                let result = result.unwrap();
-
-                let expected = array_bytes::hex2bytes_unchecked(&test.expected);
-                assert_eq!(result, expected);
-
-            }
-        });
-    }
-    let elapsed1 = now_1.elapsed();
-    println!("{:?}", elapsed1/ (iterations*14) );
-
-    println!("{:?}", elapsed1/ ((iterations*14) - skipped));
+            let expected = array_bytes::hex2bytes_unchecked(&test.expected);
+            assert_eq!(to_le_64(&result), expected);
+            i+=1;
+        }
+    });
 }
 
 #[test]
@@ -755,15 +621,15 @@ fn alt_bn128_multiplication_test() {
     }
 
     let test_cases: Vec<TestCase> = serde_json::from_str(test_data).unwrap();
-
     test_cases.iter().for_each(|test| {
+
         let input = array_bytes::hex2bytes_unchecked(&test.input);
         let result = alt_bn128_multiplication(&input);
         assert!(result.is_ok());
         let result = result.unwrap();
 
         let expected = array_bytes::hex2bytes_unchecked(&test.expected);
-        assert_eq!(result, expected);
+        assert_eq!(to_le_64(&result), expected);
     });
 }
 

@@ -1,5 +1,9 @@
 #![feature(test)]
-
+#![allow(unused_variables)]
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(unused_must_use)]
+#![allow(unused_assignments)]
 extern crate test;
 
 use solana_program::alt_bn128::{
@@ -7,6 +11,23 @@ use solana_program::alt_bn128::{
     alt_bn128_multiplication,
     alt_bn128_pairing
 };
+use {
+    ark_bn254,
+    ark_ec,
+    ark_std::{test_rng, UniformRand},
+        };
+use ark_std::rand::prelude::StdRng;
+use ark_ff::{
+    PrimeField,
+    BigInteger,
+    Fp256,
+    bytes::ToBytes,
+};
+use ark_ec::AffineCurve;
+
+type G2 = ark_ec::short_weierstrass_jacobian::GroupAffine::<ark_bn254::g2::Parameters>;
+
+type G1 = ark_ec::short_weierstrass_jacobian::GroupAffine::<ark_bn254::g1::Parameters>;
 
 #[bench]
 fn alt_bn128_addition_test(b: &mut Bencher) {
@@ -47,7 +68,6 @@ fn alt_bn128_addition_test(b: &mut Bencher) {
         });
     });
 }
-
 
 #[bench]
 fn alt_bn128_multiplication_test(b: &mut Bencher) {
@@ -116,6 +136,43 @@ fn alt_bn128_multiplication_test(b: &mut Bencher) {
     });
 }
 
+fn get_random_g1(rng: &mut StdRng) -> [u8;64] {
+    let success = false;
+    let mut res : Option<G1>;
+    while !success {
+
+        let fp = Fp256::<ark_bn254::FqParameters>::rand(rng).into_repr().to_bytes_le();
+        res = match <G1 as AffineCurve>::from_random_bytes(&fp[..]) {
+            Some(res) => {
+                let mut bytes = [0u8;65];
+                <G1 as ToBytes>::write(&res, &mut bytes[..]).unwrap();
+                return bytes[..64].try_into().unwrap();
+            },
+            None => None,
+        };
+    }
+    [0u8;64]
+}
+
+fn get_random_g2(rng: &mut  StdRng) -> [u8;128] {
+
+    let success = false;
+    let mut res : Option<G2>;
+    while !success {
+
+        let fp = Fp256::<ark_bn254::FqParameters>::rand(rng).into_repr().to_bytes_le();
+        res = match <G2 as AffineCurve>::from_random_bytes(&fp[..]) {
+            Some(res) => {
+                let mut bytes = [0u8;129];
+                <G2 as ToBytes>::write(&res, &mut bytes[..]).unwrap();
+                return bytes[..128].try_into().unwrap();
+            },
+            None => None,
+        };
+    }
+    [0u8;128]
+}
+
 fn to_be_64(bytes: &[u8]) -> Vec<u8> {
     let mut vec = Vec::new();
     for b in bytes.chunks(32) {
@@ -138,8 +195,10 @@ use criterion::{criterion_group, criterion_main, Criterion};
 
 
 criterion_group!(benches,
-    alt_bn128_pairing_test_2,
-    alt_bn128_pairing_test_rnd
+    // alt_bn128_pairing_test_2,
+    // // alt_bn128_pairing_test_rnd,
+    alt_bn128_pairing_test_rnd_2,
+    alt_bn128_multiplication_test_rnd
 );
 criterion_main!(benches);
 
@@ -237,6 +296,43 @@ fn alt_bn128_pairing_test_2(c: &mut Criterion) {
     let input = vec![input, to_be_64(&TEST_DATA[2][2].0), to_be_128(&TEST_DATA[2][2].1)].concat();
 
     c.bench_function("pairing 9", |b| b.iter(|| alt_bn128_pairing(&input[..])));
+
+}
+
+fn alt_bn128_pairing_test_rnd_2(c: &mut Criterion) {
+    let mut rng = test_rng();
+    let mut input = Vec::new();
+    for _ in 0..10000 {
+        input.push([&to_be_64(&get_random_g1(&mut rng))[..], &to_be_128(&get_random_g2(&mut rng))[..]].concat());
+    }
+    let mut i = 0;
+    c.bench_function("pairing rnd", |b| b.iter(|| {
+
+        alt_bn128_pairing(&input[i][..]);
+        i+=1;
+    }));
+
+    let mut i = 9_999;
+    c.bench_function("pairing 2 rnd", |b| b.iter(|| {
+
+        alt_bn128_pairing(&[&input[i][..], &input[i-1][..]].concat());
+        i-=1;
+    }));
+
+}
+use ark_ff::BigInteger256;
+fn alt_bn128_multiplication_test_rnd(c: &mut Criterion) {
+    let mut rng = test_rng();
+    let mut input = Vec::new();
+    for _ in 0..1_000_000 {
+        let bigint = BigInteger256::rand(&mut rng);
+        input.push([&to_be_64(&get_random_g1(&mut rng))[..], &bigint.to_bytes_be()[..]].concat());
+    }
+    let mut i = 0;
+    c.bench_function("mul rnd", |b| b.iter(|| {
+        alt_bn128_multiplication(&input[i][..]);
+        i+=1;
+    }));
 
 }
 
