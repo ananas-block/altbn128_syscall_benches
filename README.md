@@ -15,6 +15,88 @@
 cd sdk
 cargo +nightly bench alt_bn128
 ```
+## Results
+
+To be on the safe side let's choose 7ms as an upper bound for the execution time for one pairing.
+Assuming 33ns per CU: 7ms * 1_000_000 / 33 (ns per CU) = 212121 Compute units per pairing
+
+Benchmarks were conducted on an aws c6a.2xlarge instance, see the [criterion folder](https://github.com/ananas-block/altbn128_syscall_benches/tree/alt_bn128_precompiles_arkworks/criterion) for benchmark data.
+
+For the bench code see [sdk/benches/bn_syscalls.rs](https://github.com/ananas-block/altbn128_syscall_benches/tree/alt_bn128_precompiles_arkworks/criterion)
+
+- pairing x benchmarks bench the execution of x pairings.
+- pairing 1 rnd benchmarks bench the execution of 1 pairings with random input ten times.
+- pairing 2 rnd benchmarks bench the execution of 2 pairings with random input ten times.
+
+pairing 2               time:   [1.3630 ms 1.3718 ms 1.3839 ms]                       
+Found 6 outliers among 100 measurements (6.00%)
+  2 (2.00%) high mild
+  4 (4.00%) high severe
+
+Benchmarking pairing 3: Warming up for 3.0000 s
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 8.9s, enable flat sampling, or reduce sample count to 50.
+pairing 3               time:   [1.6807 ms 1.6819 ms 1.6835 ms]                       
+Found 6 outliers among 100 measurements (6.00%)
+  1 (1.00%) high mild
+  5 (5.00%) high severe
+
+pairing 4               time:   [1.9977 ms 1.9980 ms 1.9983 ms]                       
+Found 3 outliers among 100 measurements (3.00%)
+  3 (3.00%) high mild
+
+pairing 5               time:   [2.3224 ms 2.3227 ms 2.3230 ms]                       
+Found 3 outliers among 100 measurements (3.00%)
+  3 (3.00%) high mild
+
+pairing 6               time:   [2.6325 ms 2.6339 ms 2.6357 ms]                       
+Found 10 outliers among 100 measurements (10.00%)
+  4 (4.00%) high mild
+  6 (6.00%) high severe
+
+pairing 7               time:   [2.9383 ms 2.9469 ms 2.9577 ms]                       
+Found 14 outliers among 100 measurements (14.00%)
+  4 (4.00%) high mild
+  10 (10.00%) high severe
+
+pairing 8               time:   [3.2903 ms 3.3137 ms 3.3407 ms]                       
+Found 20 outliers among 100 measurements (20.00%)
+  2 (2.00%) high mild
+  18 (18.00%) high severe
+
+pairing 9               time:   [3.5580 ms 3.5584 ms 3.5589 ms]                       
+Found 5 outliers among 100 measurements (5.00%)
+  2 (2.00%) low mild
+  1 (1.00%) high mild
+  2 (2.00%) high severe
+
+Benchmarking pairing rnd: Warming up for 3.0000 s
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 5.5s, enable flat sampling, or reduce sample count to 60.
+pairing rnd             time:   [1.0996 ms 1.1387 ms 1.1871 ms]                         
+Found 8 outliers among 100 measurements (8.00%)
+  1 (1.00%) low mild
+  1 (1.00%) high mild
+  6 (6.00%) high severe
+
+Benchmarking pairing 2 rnd: Warming up for 3.0000 s
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 7.3s, enable flat sampling, or reduce sample count to 50.
+pairing 2 rnd           time:   [1.4105 ms 1.4107 ms 1.4109 ms]                           
+Found 3 outliers among 100 measurements (3.00%)
+  2 (2.00%) high mild
+  1 (1.00%) high severe
+
+mul rnd                 time:   [126.64 us 126.68 us 126.71 us]                    
+Found 8 outliers among 100 measurements (8.00%)
+  1 (1.00%) low severe
+  3 (3.00%) low mild
+  3 (3.00%) high mild
+  1 (1.00%) high severe
+
+addition rnd            time:   [4.1247 us 4.1553 us 4.1903 us]                          
+Found 6 outliers among 100 measurements (6.00%)
+  1 (1.00%) low severe
+  2 (2.00%) high mild
+  3 (3.00%) high severe
+
 
 # Building
 
