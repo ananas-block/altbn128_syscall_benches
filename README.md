@@ -17,8 +17,13 @@ cargo +nightly bench alt_bn128
 ```
 ## Results
 
-To be on the safe side let's choose 7ms as an upper bound for the execution time for one pairing.
-Assuming 33ns per CU: 7ms * 1_000_000 / 33 (ns per CU) = 212121 Compute units per pairing
+To be on the safe side let's choose 1.2ms as an upper bound for the execution time for the first pairing and 0.4ms for subsquent pairings.
+Assuming 33ns per CU:
+
+1.2ms * 1_000_000 / 33 (ns per CU) = 36364 Compute units for the first pairing
+0.4ms * 1_000_000 / 33 (ns per CU) = 12121 Compute units for one subsequent pairing
+
+36364 + number_of_pairings * 12121 = total CU costs (number_of_pairings starting from index 0)
 
 Benchmarks were conducted on an aws c6a.2xlarge instance, see the [criterion folder](https://github.com/ananas-block/altbn128_syscall_benches/tree/alt_bn128_precompiles_arkworks/criterion) for benchmark data.
 
