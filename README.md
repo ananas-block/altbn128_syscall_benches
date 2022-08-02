@@ -21,7 +21,7 @@ cargo +nightly bench alt_bn128
 To be on the safe side let's choose 7ms as an upper bound for the execution time for one pairing.
 Assuming 33ns per CU: 7ms * 1_000_000 / 33 (ns per CU) = 212121 Compute units per pairing
 
-
+Benchmarks were conducted on an aws c6a.2xlarge instance, see the [criterion folder](https://github.com/ananas-block/altbn128_syscall_benches/tree/alt_bn128_precompiles/criterion) for benchmark data.
 
 - pairing x benchmarks bench the execution of x pairings.
 - pairing 1 rnd benchmarks bench the execution of 1 pairings with random input ten times.
