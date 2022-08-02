@@ -69,11 +69,6 @@ mod consts {
     /// the consistently united x and y fields as 64 bytes.
     pub const ALT_BN128_POINT_SIZE: usize = 64;
 
-    /// Internal representation of the EC field (32 bytes).
-    pub type FieldBytes = [u8; ALT_BN128_FIELD_SIZE];
-
-    /// Internal representation of the EC point (64 bytes).
-    pub type PointBytes = [u8; ALT_BN128_POINT_SIZE];
 }
 
 //---- Custom errors
@@ -144,12 +139,16 @@ pub struct PodG2(pub [u8; 128]);
 
 impl TryFrom<PodG1> for G1 {
     type Error = AltBn128Error;
+
     fn try_from(bytes: PodG1) -> Result<Self, Self::Error> {
         if bytes.0 == [0u8;64] {
             return Ok(G1::zero());
         }
         let g1 = <Self as FromBytes>::read(&*[&bytes.0[..], &[0u8][..]].concat());
-        assert!(g1.as_ref().unwrap().is_on_curve());
+
+        if !g1.as_ref().unwrap().is_on_curve() {
+            return Err(AltBn128Error::GroupError);
+        }
 
         match g1 {
             Ok(g1) => Ok(g1),
@@ -166,7 +165,10 @@ impl TryFrom<PodG2> for G2 {
             return Ok(G2::zero());
         }
         let g2 = <Self as FromBytes>::read(&*[&bytes.0[..], &[0u8][..]].concat());
-        assert!(g2.as_ref().unwrap().is_on_curve());
+
+        if !g2.as_ref().unwrap().is_on_curve() {
+            return Err(AltBn128Error::GroupError);
+        }
 
         match g2 {
             Ok(g2) => Ok(g2),
@@ -220,7 +222,7 @@ pub fn alt_bn128_addition(input: &[u8]) -> Result<Vec<u8>, AltBn128Error> {
         if result_point == G1::zero() {
             return Ok([0u8;ALT_BN128_ADDITION_OUTPUT_LEN].to_vec());
         }
-        Ok(result_point_data[..ALT_BN128_ADDITION_OUTPUT_LEN].to_vec())
+        Ok(to_le_64(&result_point_data[..ALT_BN128_ADDITION_OUTPUT_LEN]).to_vec())
     }
 }
 
@@ -270,7 +272,7 @@ pub fn alt_bn128_multiplication(input: &[u8]) -> Result<Vec<u8>, AltBn128Error> 
         let result_point: G1 = p.into_projective().mul(&fr).into();
         <G1 as ToBytes>::write(&result_point, &mut result_point_data[..]).unwrap();
 
-        Ok(result_point_data[..ALT_BN128_MULTIPLICATION_OUTPUT_LEN].to_vec())
+        Ok(to_le_64(&result_point_data[..ALT_BN128_MULTIPLICATION_OUTPUT_LEN]).to_vec())
     }
 }
 
@@ -319,8 +321,8 @@ pub fn alt_bn128_pairing(input: &[u8]) -> Result<Vec<u8>, AltBn128Error> {
 
         let mut vec_pairs: Vec<(G1Prepared<Parameters>, G2Prepared<Parameters>)> = Vec::new();
         for i in 0..ele_len {
-            let g1 :G1 = PodG1(to_le_64(&input[i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN)..i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN).saturating_add(64)]).try_into().unwrap()).try_into().unwrap();
-            let g2 :G2 = PodG2(to_le_128(&input[i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN).saturating_add(64) ..i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN).saturating_add(ALT_BN128_PAIRING_ELEMENT_LEN)]).try_into().unwrap()).try_into().unwrap();
+            let g1 :G1 = PodG1(to_le_64(&input[i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN)..i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN).saturating_add(ALT_BN128_POINT_SIZE)]).try_into().unwrap()).try_into().unwrap();
+            let g2 :G2 = PodG2(to_le_128(&input[i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN).saturating_add(ALT_BN128_POINT_SIZE) ..i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN).saturating_add(ALT_BN128_PAIRING_ELEMENT_LEN)]).try_into().unwrap()).try_into().unwrap();
             vec_pairs.push((
                 g1.into(),
                 g2.into(),
@@ -331,7 +333,7 @@ pub fn alt_bn128_pairing(input: &[u8]) -> Result<Vec<u8>, AltBn128Error> {
         #[cfg(not(target_arch = "bpf"))]
         {
             let res = <Bn<Parameters> as PairingEngine>::product_of_pairings(
-                (&vec_pairs[..ele_len]).into_iter()
+                (&vec_pairs[..ele_len]).iter()
             );
 
             type GT = <ark_ec::models::bn::Bn<ark_bn254::Parameters> as ark_ec::PairingEngine>::Fqk;
@@ -479,7 +481,6 @@ fn alt_bn128_addition_test() {
     }
 
     let test_cases: Vec<TestCase> = serde_json::from_str(test_data).unwrap();
-    let mut i = 0;
     test_cases.iter().for_each(|test| {
         let input = array_bytes::hex2bytes_unchecked(&test.input);
         if input.len() != ALT_BN128_ADDITION_INPUT_LEN {
@@ -490,8 +491,7 @@ fn alt_bn128_addition_test() {
             let result = result.unwrap();
 
             let expected = array_bytes::hex2bytes_unchecked(&test.expected);
-            assert_eq!(to_le_64(&result), expected);
-            i+=1;
+            assert_eq!(result, expected);
         }
     });
 }
@@ -629,7 +629,7 @@ fn alt_bn128_multiplication_test() {
         let result = result.unwrap();
 
         let expected = array_bytes::hex2bytes_unchecked(&test.expected);
-        assert_eq!(to_le_64(&result), expected);
+        assert_eq!(result, expected);
     });
 }
 
