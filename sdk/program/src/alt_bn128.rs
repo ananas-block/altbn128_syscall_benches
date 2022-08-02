@@ -4,41 +4,34 @@ pub mod prelude {
     };
 }
 use bytemuck::{Pod, Zeroable};
-
+use thiserror::Error;
+#[cfg(not(target_arch = "bpf"))]
 use {
     core::convert::TryFrom,
-    thiserror::Error,
-};
-
-use ark_ff::{
-    bytes::{FromBytes, ToBytes},
-    BigInteger
-};
-
-use ark_ec::{
-    self,
-    AffineCurve,
-    ProjectiveCurve,
-    PairingEngine,
-    models::bn::{
-        Bn,
-        g1::G1Prepared,
-        g2::G2Prepared
-    }
-};
-use {
     ark_bn254::{
         self,
         Parameters
+    },
+    ark_ff::{
+        One,
+        Zero,
+        BigInteger256,
+        bytes::{FromBytes, ToBytes},
+        BigInteger
+    },
+    ark_ec::{
+        self,
+        AffineCurve,
+        ProjectiveCurve,
+        PairingEngine,
+        models::bn::{
+            Bn,
+            g1::G1Prepared,
+            g2::G2Prepared
+        }
     }
 };
 
-use ark_ff::{
-    One,
-    BigInteger256
-};
-use crate::alt_bn128::AltBn128Error::InvalidInputData;
-use num_traits::Zero;
 use consts::*;
 
 //---- Constants
@@ -123,9 +116,6 @@ impl From<AltBn128Error> for u64 {
     }
 }
 
-//---- Field & Point structs
-type G1 = ark_ec::short_weierstrass_jacobian::GroupAffine::<ark_bn254::g1::Parameters>;
-type G2 = ark_ec::short_weierstrass_jacobian::GroupAffine::<ark_bn254::g2::Parameters>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
 #[repr(transparent)]
@@ -136,7 +126,13 @@ pub struct PodG1(pub [u8; 64]);
 #[repr(transparent)]
 pub struct PodG2(pub [u8; 128]);
 
+//---- Field & Point structs
+#[cfg(not(target_arch = "bpf"))]
+type G1 = ark_ec::short_weierstrass_jacobian::GroupAffine::<ark_bn254::g1::Parameters>;
+#[cfg(not(target_arch = "bpf"))]
+type G2 = ark_ec::short_weierstrass_jacobian::GroupAffine::<ark_bn254::g2::Parameters>;
 
+#[cfg(not(target_arch = "bpf"))]
 impl TryFrom<PodG1> for G1 {
     type Error = AltBn128Error;
 
@@ -157,6 +153,7 @@ impl TryFrom<PodG1> for G1 {
     }
 }
 
+#[cfg(not(target_arch = "bpf"))]
 impl TryFrom<PodG2> for G2 {
     type Error = AltBn128Error;
 
@@ -172,7 +169,7 @@ impl TryFrom<PodG2> for G2 {
 
         match g2 {
             Ok(g2) => Ok(g2),
-            Err(_) => Err(InvalidInputData),
+            Err(_) => Err(AltBn128Error::InvalidInputData),
         }
     }
 }
@@ -212,8 +209,8 @@ pub fn alt_bn128_addition(input: &[u8]) -> Result<Vec<u8>, AltBn128Error> {
         let mut input = input.to_vec();
         input.resize(ALT_BN128_ADDITION_INPUT_LEN, 0);
 
-       let p :G1 = PodG1(to_le_64(&input[..64]).try_into().unwrap()).try_into().unwrap();
-       let q :G1 = PodG1(to_le_64(&input[64..ALT_BN128_ADDITION_INPUT_LEN]).try_into().unwrap()).try_into().unwrap();
+       let p :G1 = PodG1(convert_edianness_64(&input[..64]).try_into().unwrap()).try_into().unwrap();
+       let q :G1 = PodG1(convert_edianness_64(&input[64..ALT_BN128_ADDITION_INPUT_LEN]).try_into().unwrap()).try_into().unwrap();
 
         let mut result_point_data = [0; ALT_BN128_ADDITION_OUTPUT_LEN + 1];
         let result_point = p + q;
@@ -222,7 +219,7 @@ pub fn alt_bn128_addition(input: &[u8]) -> Result<Vec<u8>, AltBn128Error> {
         if result_point == G1::zero() {
             return Ok([0u8;ALT_BN128_ADDITION_OUTPUT_LEN].to_vec());
         }
-        Ok(to_le_64(&result_point_data[..ALT_BN128_ADDITION_OUTPUT_LEN]).to_vec())
+        Ok(convert_edianness_64(&result_point_data[..ALT_BN128_ADDITION_OUTPUT_LEN]).to_vec())
     }
 }
 
@@ -264,15 +261,15 @@ pub fn alt_bn128_multiplication(input: &[u8]) -> Result<Vec<u8>, AltBn128Error> 
         let mut input = input.to_vec();
         input.resize(ALT_BN128_MULTIPLICATION_INPUT_LEN, 0);
 
-        let p :G1 = PodG1(to_le_64(&input[..64]).try_into().unwrap()).try_into().unwrap();
+        let p :G1 = PodG1(convert_edianness_64(&input[..64]).try_into().unwrap()).try_into().unwrap();
 
-        let fr = <BigInteger256 as FromBytes>::read(&*to_le_64(&input[64..96])).unwrap();
+        let fr = <BigInteger256 as FromBytes>::read(&*convert_edianness_64(&input[64..96])).unwrap();
 
         let mut result_point_data = [0; ALT_BN128_MULTIPLICATION_OUTPUT_LEN + 1];
         let result_point: G1 = p.into_projective().mul(&fr).into();
         <G1 as ToBytes>::write(&result_point, &mut result_point_data[..]).unwrap();
 
-        Ok(to_le_64(&result_point_data[..ALT_BN128_MULTIPLICATION_OUTPUT_LEN]).to_vec())
+        Ok(convert_edianness_64(&result_point_data[..ALT_BN128_MULTIPLICATION_OUTPUT_LEN]).to_vec())
     }
 }
 
@@ -321,8 +318,8 @@ pub fn alt_bn128_pairing(input: &[u8]) -> Result<Vec<u8>, AltBn128Error> {
 
         let mut vec_pairs: Vec<(G1Prepared<Parameters>, G2Prepared<Parameters>)> = Vec::new();
         for i in 0..ele_len {
-            let g1 :G1 = PodG1(to_le_64(&input[i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN)..i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN).saturating_add(ALT_BN128_POINT_SIZE)]).try_into().unwrap()).try_into().unwrap();
-            let g2 :G2 = PodG2(to_le_128(&input[i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN).saturating_add(ALT_BN128_POINT_SIZE) ..i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN).saturating_add(ALT_BN128_PAIRING_ELEMENT_LEN)]).try_into().unwrap()).try_into().unwrap();
+            let g1 :G1 = PodG1(convert_edianness_64(&input[i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN)..i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN).saturating_add(ALT_BN128_POINT_SIZE)]).try_into().unwrap()).try_into().unwrap();
+            let g2 :G2 = PodG2(convert_edianness_128(&input[i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN).saturating_add(ALT_BN128_POINT_SIZE) ..i.saturating_mul(ALT_BN128_PAIRING_ELEMENT_LEN).saturating_add(ALT_BN128_PAIRING_ELEMENT_LEN)]).try_into().unwrap()).try_into().unwrap();
             vec_pairs.push((
                 g1.into(),
                 g2.into(),
@@ -347,8 +344,8 @@ pub fn alt_bn128_pairing(input: &[u8]) -> Result<Vec<u8>, AltBn128Error> {
         Ok(output)
     }
 }
-
-fn to_le_64(bytes: &[u8]) -> Vec<u8> {
+#[cfg(not(target_arch = "bpf"))]
+fn convert_edianness_64(bytes: &[u8]) -> Vec<u8> {
     let mut vec = Vec::new();
     for b in bytes.chunks(32) {
         for byte in b.iter().rev() {
@@ -358,7 +355,8 @@ fn to_le_64(bytes: &[u8]) -> Vec<u8> {
     vec
 }
 
-fn to_le_128(bytes: &[u8]) -> Vec<u8> {
+#[cfg(not(target_arch = "bpf"))]
+fn convert_edianness_128(bytes: &[u8]) -> Vec<u8> {
     let mut vec = Vec::new();
     for b in bytes.chunks(64) {
         for byte in b.iter().rev() {
