@@ -2014,8 +2014,11 @@ impl<'a, 'b> SyscallObject<BpfError> for SyscallAltBn128Pairing<'a, 'b> {
         let cost = invoke_context.get_compute_budget().mem_op_base_cost.max(
             invoke_context
                 .get_compute_budget()
-                .alt_bn128_pairing_one_pair_cost
-                .saturating_mul(ele_len - 1),
+                .alt_bn128_pairing_one_pair_cost_first
+                .saturating_add(
+                    invoke_context.get_compute_budget().alt_bn128_pairing_one_pair_cost_other.saturating_mul(ele_len - 1)
+                )
+                ,
         );
         question_mark!(invoke_context.get_compute_meter().consume(cost), result);
 

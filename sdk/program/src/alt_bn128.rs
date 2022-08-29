@@ -269,6 +269,10 @@ pub fn alt_bn128_multiplication(input: &[u8]) -> Result<Vec<u8>, AltBn128Error> 
         let result_point: G1 = p.into_projective().mul(&fr).into();
         <G1 as ToBytes>::write(&result_point, &mut result_point_data[..]).unwrap();
 
+        if result_point == G1::zero() {
+            return Ok([0u8;ALT_BN128_MULTIPLICATION_INPUT_LEN].to_vec());
+        }
+        
         Ok(convert_edianness_64(&result_point_data[..ALT_BN128_MULTIPLICATION_OUTPUT_LEN]).to_vec())
     }
 }

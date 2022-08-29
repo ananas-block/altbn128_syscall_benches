@@ -99,9 +99,10 @@ impl ComputeBudget {
             heap_size: None,
             heap_cost: 8,
             mem_op_base_cost: 10,
-            alt_bn128_addition_cost: 120,
-            alt_bn128_multiplication_cost: 200,
-            alt_bn128_pairing_one_pair_cost: 110,
+            alt_bn128_addition_cost: 192,
+            alt_bn128_multiplication_cost:  3840,
+            alt_bn128_pairing_one_pair_cost_first: 36364,
+            alt_bn128_pairing_one_pair_cost_other: 12121,
         }
     }
 
