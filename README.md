@@ -13,7 +13,7 @@
 
 ```
 cd sdk
-cargo +nightly bench alt_bn128
+cargo  +nightly-2022-08-29 bench
 ```
 
 ## Results
