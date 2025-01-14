@@ -14,6 +14,7 @@
 ```
 cd sdk
 cargo  +nightly-2022-08-29 bench
+xdg-open ../target/criterion/addition\ rnd/report/index.html
 ```
 
 ## Results
